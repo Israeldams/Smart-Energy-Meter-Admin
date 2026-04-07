@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Energy Meter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body {
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .container {
+      width: 95%;
+      max-width: 400px;
+    }
+
+    .card {
+      background: #1e293b;
+      padding: 12px;
+      margin: 8px 0;
+      border-radius: 12px;
+    }
+
+    h3 { margin: 5px 0; }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+    }
+
+    input, select, button {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border-radius: 8px;
+      border: none;
+    }
+
+    button {
+      background: #22c55e;
+      color: white;
+    }
+
+    .danger {
+      background: #ef4444;
+    }
+
+    .status {
+      font-size: 12px;
+      text-align: center;
+    }
+
+    #relayState {
+      font-weight: bold;
+      text-align: center;
+      margin-top: 5px;
+    }
+
+    .on { color: #22c55e; }   /* Green */
+    .off { color: #ef4444; }  /* Red */
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <!-- LIVE DATA -->
+  <div class="card">
+    <h3>Smart Energy Meter</h3>
+    <div class="row"><span>V:</span><span id="v">--</span></div>
+    <div class="row"><span>I:</span><span id="i">--</span></div>
+    <div class="row"><span>P:</span><span id="p">--</span></div>
+    <div class="row"><span>kWh:</span><span id="e">--</span></div>
+    <div class="row"><span>₦:</span><span id="b">--</span></div>
+    <div class="row"><span>Tariff:</span><span id="t">--</span></div>
+    <div class="row"><span>Band:</span><span id="bd">--</span></div>
+    <div class="row"><span>Power:</span><span id="relayState" class="off">--</span></div>
+  </div>
+
+  <!-- CONTROL -->
+  <div class="card">
+    <input type="number" id="tariffInput" placeholder="Tariff">
+    <button onclick="setTariff()">Set Tariff</button>
+
+    <select id="bandSelect">
+      <option value="A">Band A</option>
+      <option value="B">Band B</option>
+    </select>
+    <button onclick="setBand()">Set Band</button>
+
+    <button onclick="powerOn()">Power ON</button>
+    <button class="danger" onclick="powerOff()">Power OFF</button>
+  </div>
+
+  <!-- STATUS -->
+  <div class="card status">
+    <div id="status">Ready</div>
+    <div id="time">--</div>
+  </div>
+
+</div>
+
+<script>
+const writeAPI = "I25BCUUMX0BZ10GX";
+const readAPI = "SPJRGJWPA6BSL7PS";
+const channelID = "3317890";
+
+let lastSend = 0;
+
+// Store last good values
+let lastData = { v:"--", i:"--", p:"--", e:"--", b:"--", t:"--", bd:"--", relay: "--" };
+
+// SAFE DISPLAY
+function safe(val, oldVal) {
+  if (val === null || val === undefined || val === "" || val === "NaN") return oldVal;
+  return val;
+}
+
+// FETCH DATA
+async function fetchData() {
+  try {
+    const res = await fetch(`https://api.thingspeak.com/channels/${channelID}/feeds/last.json?api_key=${readAPI}`);
+    const d = await res.json();
+
+    lastData.v = safe(d.field1, lastData.v);
+    lastData.i = safe(d.field2, lastData.i);
+    lastData.p = safe(d.field3, lastData.p);
+    lastData.e = safe(d.field4, lastData.e);
+    lastData.b = safe(d.field5, lastData.b);
+    lastData.t = safe(d.field6, lastData.t);
+
+    let bandValue = d.field7 ? d.field7.toString().trim().toUpperCase() : "";
+    lastData.bd = (bandValue === "A" || bandValue === "B") ? bandValue : "--";
+
+    // RELAY / POWER STATE WITH COLOR
+    let relayVal = d.field8;
+    if (relayVal == 1) {
+      lastData.relay = "ON";
+      document.getElementById("relayState").className = "on";
+    } else {
+      lastData.relay = "OFF";
+      document.getElementById("relayState").className = "off";
+    }
+
+    // UPDATE DISPLAY
+    document.getElementById("v").innerText = lastData.v;
+    document.getElementById("i").innerText = lastData.i;
+    document.getElementById("p").innerText = lastData.p;
+    document.getElementById("e").innerText = lastData.e;
+    document.getElementById("b").innerText = lastData.b;
+    document.getElementById("t").innerText = lastData.t;
+    document.getElementById("bd").innerText = lastData.bd;
+    document.getElementById("relayState").innerText = lastData.relay;
+
+  } catch(err) {
+    console.error(err);
+    document.getElementById("status").innerText = "❌ Fetch error";
+  }
+}
+
+// SEND TO THINGSPEAK
+async function send(url) {
+  let now = Date.now();
+  if (now - lastSend < 15000) {
+    document.getElementById("status").innerText = "⏳ Wait 15s...";
+    return;
+  }
+
+  document.getElementById("status").innerText = "📡 Sending...";
+  try {
+    const res = await fetch(url);
+    const txt = await res.text();
+
+    if (txt == "0") document.getElementById("status").innerText = "❌ Failed";
+    else {
+      document.getElementById("status").innerText = "✅ Sent";
+      document.getElementById("time").innerText = new Date().toLocaleTimeString();
+      lastSend = now;
+    }
+
+  } catch(err) {
+    console.error(err);
+    document.getElementById("status").innerText = "❌ Network error";
+  }
+}
+
+// ACTIONS
+function setTariff() {
+  let val = document.getElementById("tariffInput").value;
+  if(val !== "") send(`https://api.thingspeak.com/update?api_key=${writeAPI}&field6=${val}`);
+}
+
+function setBand() {
+  let val = document.getElementById("bandSelect").value.trim();
+  if (val === "A" || val === "B") send(`https://api.thingspeak.com/update?api_key=${writeAPI}&field7=${val}`);
+}
+
+function powerOn() {
+  send(`https://api.thingspeak.com/update?api_key=${writeAPI}&field8=1`);
+}
+
+function powerOff() {
+  send(`https://api.thingspeak.com/update?api_key=${writeAPI}&field8=0`);
+}
+
+// AUTO REFRESH
+setInterval(fetchData, 5000);
+fetchData();
+
+</script>
+</body>
+</html>
