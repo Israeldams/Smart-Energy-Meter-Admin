@@ -4,7 +4,7 @@
   <link rel="icon" type="image/png" href="my-icon.png">
   <link rel="apple-touch-icon" href="my-icon.png">
   <link rel="manifest" href="manifest.json">
-  <title>Energy Meter</title>
+  <title>Energy Meter - Admin</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <style>
@@ -31,7 +31,7 @@
       border-radius: 12px;
     }
 
-    h3 { margin: 5px 0; }
+    h3 { margin: 5px 0; text-align: center; }
 
     .row {
       display: flex;
@@ -45,11 +45,13 @@
       margin-top: 5px;
       border-radius: 8px;
       border: none;
+      box-sizing: border-box;
     }
 
     button {
       background: #22c55e;
       color: white;
+      cursor: pointer;
     }
 
     .danger {
@@ -69,6 +71,12 @@
 
     .on { color: #22c55e; }   /* Green */
     .off { color: #ef4444; }  /* Red */
+    
+    .divider {
+      height: 1px;
+      background: #334155;
+      margin: 10px 0;
+    }
   </style>
 </head>
 
@@ -76,7 +84,6 @@
 
 <div class="container">
 
-  <!-- LIVE DATA -->
   <div class="card">
     <h3>Smart Energy Meter</h3>
     <div class="row"><span>V:</span><span id="v">--</span></div>
@@ -89,8 +96,12 @@
     <div class="row"><span>Power:</span><span id="relayState" class="off">--</span></div>
   </div>
 
-  <!-- CONTROL -->
   <div class="card">
+    <input type="number" id="meterIDInput" placeholder="Enter Meter (Channel) ID">
+    <button style="background: #3b82f6;" onclick="saveChannel()">Connect Meter</button>
+    
+    <div class="divider"></div>
+
     <input type="number" id="tariffInput" placeholder="Tariff">
     <button onclick="setTariff()">Set Tariff</button>
 
@@ -104,9 +115,8 @@
     <button class="danger" onclick="powerOff()">Power OFF</button>
   </div>
 
-  <!-- STATUS -->
   <div class="card status">
-    <div id="status">Ready</div>
+    <div id="status">Enter Meter ID</div>
     <div id="time">--</div>
   </div>
 
@@ -115,24 +125,45 @@
 <script>
 const writeAPI = "I25BCUUMX0BZ10GX";
 const readAPI = "SPJRGJWPA6BSL7PS";
-const channelID = "3317890";
+
+// Get saved channel ID or stay empty
+let channelID = localStorage.getItem("savedChannelID") || "";
+if(channelID) {
+    document.getElementById("meterIDInput").value = channelID;
+}
 
 let lastSend = 0;
-
-// Store last good values
 let lastData = { v:"--", i:"--", p:"--", e:"--", b:"--", t:"--", bd:"--", relay: "--" };
 
-// SAFE DISPLAY
 function safe(val, oldVal) {
   if (val === null || val === undefined || val === "" || val === "NaN") return oldVal;
   return val;
 }
 
-// FETCH DATA
+// Function to update the Channel ID
+function saveChannel() {
+  const newID = document.getElementById("meterIDInput").value;
+  if (newID) {
+    localStorage.setItem("savedChannelID", newID);
+    channelID = newID;
+    document.getElementById("status").innerText = "🔄 Channel Updated";
+    fetchData();
+  } else {
+    alert("Please enter a valid Channel ID");
+  }
+}
+
 async function fetchData() {
+  if (!channelID) return;
+
   try {
     const res = await fetch(`https://api.thingspeak.com/channels/${channelID}/feeds/last.json?api_key=${readAPI}`);
     const d = await res.json();
+
+    if (d === -1) {
+        document.getElementById("status").innerText = "❌ Invalid ID";
+        return;
+    }
 
     lastData.v = safe(d.field1, lastData.v);
     lastData.i = safe(d.field2, lastData.i);
@@ -144,7 +175,6 @@ async function fetchData() {
     let bandValue = d.field7 ? d.field7.toString().trim().toUpperCase() : "";
     lastData.bd = (bandValue === "A" || bandValue === "B") ? bandValue : "--";
 
-    // RELAY / POWER STATE WITH COLOR
     let relayVal = d.field8;
     if (relayVal == 1) {
       lastData.relay = "ON";
@@ -154,7 +184,6 @@ async function fetchData() {
       document.getElementById("relayState").className = "off";
     }
 
-    // UPDATE DISPLAY
     document.getElementById("v").innerText = lastData.v;
     document.getElementById("i").innerText = lastData.i;
     document.getElementById("p").innerText = lastData.p;
@@ -163,6 +192,7 @@ async function fetchData() {
     document.getElementById("t").innerText = lastData.t;
     document.getElementById("bd").innerText = lastData.bd;
     document.getElementById("relayState").innerText = lastData.relay;
+    document.getElementById("status").innerText = "✅ Connected";
 
   } catch(err) {
     console.error(err);
@@ -170,8 +200,12 @@ async function fetchData() {
   }
 }
 
-// SEND TO THINGSPEAK
 async function send(url) {
+  if (!channelID) {
+      alert("Set Meter ID first");
+      return;
+  }
+  
   let now = Date.now();
   if (now - lastSend < 15000) {
     document.getElementById("status").innerText = "⏳ Wait 15s...";
@@ -189,36 +223,32 @@ async function send(url) {
       document.getElementById("time").innerText = new Date().toLocaleTimeString();
       lastSend = now;
     }
-
   } catch(err) {
-    console.error(err);
     document.getElementById("status").innerText = "❌ Network error";
   }
 }
 
-// ACTIONS
 function setTariff() {
   let val = document.getElementById("tariffInput").value;
-  if(val !== "") send(`https://api.thingspeak.com/update?api_key=${writeAPI}&field6=${val}`);
+  if(val !== "") send(`https://api.thingspeak.com/update?api_key=${writeAPI}&channel_id=${channelID}&field6=${val}`);
 }
 
 function setBand() {
   let val = document.getElementById("bandSelect").value.trim();
-  if (val === "A" || val === "B") send(`https://api.thingspeak.com/update?api_key=${writeAPI}&field7=${val}`);
+  if (val === "A" || val === "B") send(`https://api.thingspeak.com/update?api_key=${writeAPI}&channel_id=${channelID}&field7=${val}`);
 }
 
 function powerOn() {
-  send(`https://api.thingspeak.com/update?api_key=${writeAPI}&field8=1`);
+  send(`https://api.thingspeak.com/update?api_key=${writeAPI}&channel_id=${channelID}&field8=1`);
 }
 
 function powerOff() {
-  send(`https://api.thingspeak.com/update?api_key=${writeAPI}&field8=0`);
+  send(`https://api.thingspeak.com/update?api_key=${writeAPI}&channel_id=${channelID}&field8=0`);
 }
 
-// AUTO REFRESH
 setInterval(fetchData, 5000);
 fetchData();
-// Registers the service worker to make the app installable
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
