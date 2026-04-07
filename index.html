@@ -218,7 +218,14 @@ function powerOff() {
 // AUTO REFRESH
 setInterval(fetchData, 5000);
 fetchData();
-
+// Registers the service worker to make the app installable
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('Service Worker Registered'))
+      .catch(err => console.log('Service Worker Failed', err));
+  });
+}
 </script>
 </body>
 </html>
