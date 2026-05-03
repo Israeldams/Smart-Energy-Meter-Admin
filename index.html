@@ -171,10 +171,12 @@ async function fetchData() {
     lastData.e = safe(d.field4, lastData.e);
     lastData.b = safe(d.field5, lastData.b);
     lastData.t = safe(d.field6, lastData.t);
-
-    let bandValue = d.field7 ? d.field7.toString().trim().toUpperCase() : "";
-    lastData.bd = (bandValue === "A" || bandValue === "B") ? bandValue : "--";
-
+    
+ let bandValue = d.field7 ? d.field7.toString().trim() : "";
+    if (bandValue === "65" || bandValue.toUpperCase() === "A") lastData.bd = "A";
+    else if (bandValue === "66" || bandValue.toUpperCase() === "B") lastData.bd = "B";
+    else lastData.bd = "--";
+    
     let relayVal = d.field8;
     if (relayVal == 1) {
       lastData.relay = "ON";
